@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Employee Dashboard | ElectroTrack</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #f4f7fc; }
+    .sidebar { width:250px; height:100vh; background:#0d2c7b; color:white; position:fixed; left:0; top:0; padding-bottom:40px; }
+    .sidebar h4 { padding:20px; font-size:22px; font-weight:bold; }
+    .sidebar a { display:block; padding:14px 20px; color:#cdd8ff; text-decoration:none; font-size:16px; margin-bottom:3px; }
+    .sidebar a.active,.sidebar a:hover { background:#1a3fa0; color:#fff; border-radius:8px; }
+    .content { margin-left:260px; padding:25px; }
+    .topbar { background:white; padding:15px 30px; border-radius:10px; margin-bottom:20px; box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+    .card-box { border-radius:15px; padding:25px; background:white; box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+    .modal-header .btn-close { margin: -1rem -1rem -1rem auto; }
+  </style>
+</head>
+<body>
+
+  <div class="sidebar">
+    <h4>Menu</h4>
+    <a href="{% url 'accounts:dashboard' %}" >Dashboard</a>
+   <!--- <a href="{% url 'accounts:attendance' %}">Attendance</a>
+    <a href="{% url 'accounts:work_reports' %}" >Work Reports</a>
+    <a href="{% url 'accounts:material_requests' %}">Material Requests</a>-->
+  </div>
+
+  <div class="content">
+    <div class="topbar d-flex justify-content-between align-items-center">
+      <h3>Workforce Management</h3>
+      <div>
+        Welcome, <strong>{{ request.user.username }}</strong>
+        <a href="{% url 'accounts:logout' %}" class="btn btn-sm btn-danger ms-3">Logout</a>
+      </div>
+    </div>
+
+    <div class="container-fluid">
+      <div class="row g-4">
+        <div class="col-md-4">
+          <div class="card card-box text-center">
+            <h5 class="mb-3">Mark Attendance</h5>
+            <a href="{% url 'accounts:attendance' %}" class="btn btn-primary">Go</a>
+          </div>
+        </div>
+
+        <div class="col-md-4">
+          <div class="card card-box text-center">
+            <h5 class="mb-3">Submit Work Report</h5>
+            <!-- open modal instead of navigating -->
+            <button id="openWorkReportModalBtn" class="btn btn-success">Submit Report</button>
+          </div>
+        </div>
+
+        <div class="col-md-4">
+          <div class="card card-box text-center">
+            <h5 class="mb-3">Raise Material Request</h5>
+            <a href="{% url 'accounts:material_request_add' %}" class="btn btn-warning">Go</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Work Report Modal -->
+  <div class="modal fade" id="workReportModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <form id="workReportForm">
+          {% csrf_token %}
+          <div class="modal-header">
+            <h5 class="modal-title">Submit Daily Work Report</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+
+          <div class="modal-body">
+            <div id="wr-alert" style="display:none;"></div>
+
+            <div class="mb-3">
+              <label class="form-label">Task Name</label>
+              <input type="text" name="task_name" id="task_name" class="form-control" required>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Description</label>
+              <textarea name="description" id="description" class="form-control" rows="3"></textarea>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Time Spent (hours)</label>
+              <input type="number" step="0.01" name="hours_worked" id="hours_worked" class="form-control" required>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Status</label>
+              <select name="status" id="status" class="form-select">
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button id="submitWorkReportBtn" type="submit" class="btn btn-primary">Submit Report</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Optional: a small area to display flash messages -->
+  <div id="page-messages" style="position:fixed; top:20px; right:20px; z-index:9999"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    // Bootstrap modal instance
+    const workReportModal = new bootstrap.Modal(document.getElementById('workReportModal'));
+
+    document.getElementById('openWorkReportModalBtn').addEventListener('click', () => {
+      // clear previous
+      document.getElementById('workReportForm').reset();
+      document.getElementById('wr-alert').style.display = 'none';
+      workReportModal.show();
+    });
+
+    // CSRF helper (reads token from the rendered template)
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+    }
+    // But Django's {% csrf_token %} in the form renders a hidden input, so fetch it:
+    function getCsrfFromForm() {
+      const f = document.querySelector('#workReportForm input[name="csrfmiddlewaretoken"]');
+      return f ? f.value : getCookie('csrftoken');
+    }
+
+    // submit via AJAX (fetch)
+    document.getElementById('workReportForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const submitBtn = document.getElementById('submitWorkReportBtn');
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'Submitting...';
+
+      const data = new FormData(this);
+      // add any extra fields if needed
+
+      try {
+        const response = await fetch("{% url 'accounts:work_report_add' %}", {
+          method: 'POST',
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            "X-CSRFToken": getCsrfFromForm()
+          },
+          body: data
+        });
+
+        if (!response.ok) throw new Error('Network error');
+
+        const j = await response.json();
+
+        if (j.success) {
+          // show quick message
+          const pm = document.getElementById('page-messages');
+          pm.innerHTML = `
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+              ${j.message || 'Work report submitted!'}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          `;
+          workReportModal.hide();
+          // optionally refresh page or update a list via DOM (not implemented)
+        } else {
+          // show validation errors returned by server
+          const alertDiv = document.getElementById('wr-alert');
+          alertDiv.style.display = 'block';
+          alertDiv.innerHTML = '<div class="alert alert-danger">' + (j.message || 'Error') + '</div>';
+        }
+      } catch (err) {
+        const alertDiv = document.getElementById('wr-alert');
+        alertDiv.style.display = 'block';
+        alertDiv.innerHTML = '<div class="alert alert-danger">Unexpected error. Try again.</div>';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Submit Report';
+      }
+    });
+  </script>
+
+</body>
+</html>
